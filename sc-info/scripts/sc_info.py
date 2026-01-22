@@ -32,20 +32,66 @@ def summarize_numeric(x):
     }
 
 
-def compute_counts(adata):
-    X = adata.X
+def pick_expression_matrix(adata):
+    """
+    Pick a reasonable expression matrix for QC/count summaries.
+
+    Many .h5ad store counts in layers (e.g. layers['counts']) and leave adata.X=None.
+    In backed mode, some matrices may be disk-backed wrappers; this function only
+    selects the matrix, conversion is handled later.
+    """
+    if getattr(adata, "X", None) is not None:
+        return adata.X, "X"
+
+    if getattr(adata, "raw", None) is not None and getattr(adata.raw, "X", None) is not None:
+        return adata.raw.X, "raw.X"
+
+    layers = getattr(adata, "layers", None)
+    if layers is not None and len(layers.keys()) > 0:
+        # Common conventions in the wild
+        for key in ("counts", "raw_counts", "count", "umi", "UMI"):
+            if key in layers:
+                return layers[key], f"layers[{key}]"
+        key = next(iter(layers.keys()))
+        return layers[key], f"layers[{key}]"
+
+    raise ValueError(
+        "No expression matrix found: adata.X is None and no adata.raw.X / adata.layers present."
+    )
+
+
+def _coerce_to_memory(X):
+    """
+    Convert disk-backed wrappers to in-memory array/sparse matrix when needed.
+    """
+    # anndata's sparse_dataset.SparseDataset exposes to_memory()
+    if hasattr(X, "to_memory") and callable(getattr(X, "to_memory")):
+        return X.to_memory()
+    return X
+
+
+def compute_counts(X):
+    X = _coerce_to_memory(X)
+
     if sp.issparse(X):
-        nnz = X.nnz
+        nnz = int(X.nnz)
         n_count = np.asarray(X.sum(axis=1)).ravel()
         n_feature = np.asarray((X > 0).sum(axis=1)).ravel()
+        n_cells, n_genes = X.shape
     else:
         X = np.asarray(X)
+        if X.ndim != 2:
+            raise ValueError(
+                f"Expression matrix must be 2D (cells x genes); got ndim={X.ndim}."
+            )
         nnz = int(np.count_nonzero(X))
-        n_count = X.sum(axis=1)
-        n_feature = (X > 0).sum(axis=1)
-    n_cells, n_genes = adata.n_obs, adata.n_vars
-    sparsity = 1 - nnz / (n_cells * n_genes)
-    return nnz, sparsity, n_count, n_feature
+        n_count = np.asarray(X.sum(axis=1)).ravel()
+        n_feature = np.asarray((X > 0).sum(axis=1)).ravel()
+        n_cells, n_genes = X.shape
+
+    denom = n_cells * n_genes
+    sparsity = 1 - (nnz / denom if denom else 0.0)
+    return nnz, sparsity, n_count, n_feature, n_cells, n_genes
 
 
 def render_table(out):
@@ -115,7 +161,8 @@ def main():
         print(f"Unsupported input type: {ext}", file=sys.stderr)
         return 1
 
-    nnz, sparsity, n_count, n_feature = compute_counts(adata)
+    X, matrix_source = pick_expression_matrix(adata)
+    nnz, sparsity, n_count, n_feature, n_cells, n_genes = compute_counts(X)
 
     qc = {
         "n_count": summarize_numeric(n_count),
@@ -143,9 +190,10 @@ def main():
         "input_path": input_path,
         "input_type": input_type,
         "engine": "Python",
+        "matrix_source": matrix_source,
         "counts": {
-            "n_cells": int(adata.n_obs),
-            "n_genes": int(adata.n_vars),
+            "n_cells": int(n_cells),
+            "n_genes": int(n_genes),
             "n_nonzero": int(nnz),
             "sparsity": float(sparsity),
         },
