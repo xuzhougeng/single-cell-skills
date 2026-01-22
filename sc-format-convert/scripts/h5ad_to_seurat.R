@@ -70,8 +70,8 @@ if (!requireNamespace("schard", quietly = TRUE)) {
   stop(paste0(
     "R package 'schard' is required.\n",
     "Install it with:\n",
-    "  install.packages('devtools')\n",
-    "  devtools::install_github('cellgeni/schard')\n"
+    "  install.packages('remotes')\n",
+    "  remotes::install_github('cellgeni/schard')\n"
   ))
 }
 
