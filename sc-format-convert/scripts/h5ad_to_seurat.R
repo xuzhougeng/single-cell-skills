@@ -1,11 +1,15 @@
 #!/usr/bin/env Rscript
 
-suppressPackageStartupMessages({
-  library(SeuratDisk)
-})
-
 usage <- function() {
-  cat("Usage: h5ad_to_seurat.R <input.h5ad> -o output.rds [--keep-intermediate]\n")
+  cat(paste0(
+    "Usage: h5ad_to_seurat.R <input.h5ad> -o output.rds [--use-raw] [--spatial] [--no-simplify]\n",
+    "\n",
+    "Notes:\n",
+    "  - This script uses schard (reticulate-free) to load .h5ad into a Seurat object.\n",
+    "  - Install schard: devtools::install_github(\"cellgeni/schard\")\n",
+    "  - --use-raw maps to schard::h5ad2seurat(..., use.raw=TRUE)\n",
+    "  - --spatial uses schard::h5ad2seurat_spatial() (for Visium/spatial h5ad)\n"
+  ))
 }
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -16,7 +20,9 @@ if (length(args) == 0) {
 
 input <- NULL
 output <- NULL
-keep_intermediate <- FALSE
+use_raw <- FALSE
+spatial <- FALSE
+simplify <- TRUE
 
 i <- 1
 while (i <= length(args)) {
@@ -26,8 +32,15 @@ while (i <= length(args)) {
   } else if (arg %in% c("-o", "--output")) {
     output <- args[i + 1]
     i <- i + 1
+  } else if (arg == "--use-raw") {
+    use_raw <- TRUE
+  } else if (arg == "--spatial") {
+    spatial <- TRUE
+  } else if (arg == "--no-simplify") {
+    simplify <- FALSE
   } else if (arg == "--keep-intermediate") {
-    keep_intermediate <- TRUE
+    # Backward-compatible no-op (old SeuratDisk workflow created .h5seurat)
+    message("[info] --keep-intermediate is ignored when using schard.")
   } else if (arg == "--help") {
     usage()
     quit(status = 0)
@@ -53,13 +66,25 @@ if (is.null(output)) {
   output <- infer_output(input)
 }
 
-h5seurat <- sub("\\.h5ad$", ".h5seurat", input)
+if (!requireNamespace("schard", quietly = TRUE)) {
+  stop(paste0(
+    "R package 'schard' is required.\n",
+    "Install it with:\n",
+    "  install.packages('devtools')\n",
+    "  devtools::install_github('cellgeni/schard')\n"
+  ))
+}
 
-Convert(input, dest = "h5seurat", overwrite = TRUE)
-seu <- LoadH5Seurat(h5seurat)
+# Seurat is usually needed to create/use Seurat objects
+if (!requireNamespace("Seurat", quietly = TRUE) && !requireNamespace("SeuratObject", quietly = TRUE)) {
+  message("[warn] 'Seurat' (or 'SeuratObject') not detected. schard may still work, but Seurat-dependent operations could fail.")
+}
+
+seu <- if (isTRUE(spatial)) {
+  schard::h5ad2seurat_spatial(input, use.raw = use_raw, simplify = simplify)
+} else {
+  schard::h5ad2seurat(input, use.raw = use_raw)
+}
+
 saveRDS(seu, output)
 cat("[ok] Wrote:", output, "\n")
-
-if (!keep_intermediate && file.exists(h5seurat)) {
-  file.remove(h5seurat)
-}

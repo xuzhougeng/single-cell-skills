@@ -40,5 +40,13 @@ Rscript scripts/h5ad_to_seurat.R input.h5ad -o output.rds
 
 ## Notes
 
-- Python scripts require `scanpy` and `anndata`.
-- R scripts require `Seurat` and `SeuratDisk` (and `Matrix`).
+## Environment / dependency check
+
+All scripts in `sc-format-convert/scripts/` do a quick dependency check on startup.
+If required R/Python packages are missing, the script will exit early and print an install hint.
+
+## Dependencies
+
+- **Python scripts** (`*.py`): `scanpy`, `anndata`, `numpy`, `pandas`, `scipy`
+- **R scripts** (`*.R`): `Seurat`, `Matrix`
+- **h5ad -> Seurat** (`scripts/h5ad_to_seurat.R`): additionally requires `schard` ([`cellgeni/schard`](https://github.com/cellgeni/schard); reticulate-free)

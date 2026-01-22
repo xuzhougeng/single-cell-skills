@@ -1,5 +1,20 @@
 #!/usr/bin/env Rscript
 
+require_pkg <- function(pkg, install_hint = NULL) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    msg <- paste0("R package '", pkg, "' is required.\n")
+    if (!is.null(install_hint)) {
+      msg <- paste0(msg, "Install it with:\n", install_hint, "\n")
+    } else {
+      msg <- paste0(msg, "Install it with:\n  install.packages('", pkg, "')\n")
+    }
+    stop(msg)
+  }
+}
+
+require_pkg("Matrix")
+require_pkg("Seurat", "  install.packages('Seurat')\n  # or, if you use BiocManager/conda, install Seurat accordingly")
+
 suppressPackageStartupMessages({
   library(Seurat)
   library(Matrix)

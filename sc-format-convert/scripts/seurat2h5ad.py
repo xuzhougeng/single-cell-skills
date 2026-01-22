@@ -18,11 +18,38 @@ import tempfile
 import subprocess
 import shutil
 import glob
-import numpy as np
-import pandas as pd
-import scanpy as sc
-from scipy import io as spio
-from scipy import sparse
+
+def _missing_py_dep(pkg, extra_hint=""):
+    sys.stderr.write(
+        f"[error] Missing Python dependency: {pkg}\n"
+        "Install with one of:\n"
+        "  pip install scanpy anndata numpy pandas scipy\n"
+        "  # or (recommended) conda:\n"
+        "  conda install -c conda-forge scanpy\n"
+        f"{extra_hint}\n"
+    )
+    sys.exit(3)
+
+try:
+    import numpy as np
+except Exception as e:
+    _missing_py_dep("numpy", extra_hint=f"Original import error: {e}\n")
+
+try:
+    import pandas as pd
+except Exception as e:
+    _missing_py_dep("pandas", extra_hint=f"Original import error: {e}\n")
+
+try:
+    import scanpy as sc
+except Exception as e:
+    _missing_py_dep("scanpy", extra_hint=f"Original import error: {e}\n")
+
+try:
+    from scipy import io as spio
+    from scipy import sparse
+except Exception as e:
+    _missing_py_dep("scipy", extra_hint=f"Original import error: {e}\n")
 
 # Embedded R script for extracting data from Seurat RDS
 R_SCRIPT = r'''
@@ -240,6 +267,12 @@ def generate_soma_preprocess_hint(h5ad_path, columns):
 
 def run_r_extraction(rds_path, prefix, rscript_cmd="Rscript"):
     """Write embedded R script and execute it to extract data from RDS."""
+    if shutil.which(rscript_cmd) is None:
+        sys.stderr.write(
+            f"[error] Cannot find Rscript executable: {rscript_cmd}\n"
+            "Please make sure R is installed and 'Rscript' is on PATH, or pass --rscript /path/to/Rscript\n"
+        )
+        sys.exit(3)
     # Write R script to temp file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.R', delete=False) as f:
         f.write(R_SCRIPT)

@@ -8,7 +8,18 @@ import argparse
 import os
 import sys
 
-import scanpy as sc
+try:
+    import scanpy as sc
+except Exception as e:
+    sys.stderr.write(
+        "[error] Missing Python dependency: scanpy (and its dependencies).\n"
+        "Install with one of:\n"
+        "  pip install scanpy anndata numpy pandas scipy\n"
+        "  # or (recommended) conda:\n"
+        "  conda install -c conda-forge scanpy\n"
+        f"\nOriginal import error: {e}\n"
+    )
+    sys.exit(3)
 
 
 def _is_mtx_dir(path):
