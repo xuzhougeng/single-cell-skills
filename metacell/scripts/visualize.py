@@ -9,8 +9,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
 from pathlib import Path
+from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgba
 import scipy.sparse as sp
+from scipy.spatial import cKDTree
 
 
 def parse_args():
@@ -49,6 +51,29 @@ def parse_args():
         type=float,
         default=0.7,
         help="Darken factor for outline color (default: 0.7).",
+    )
+    parser.add_argument(
+        "--draw-nn",
+        action="store_true",
+        help="If set, draw nearest-neighbor edges between metacell points (based on metacell 2D coords).",
+    )
+    parser.add_argument(
+        "--nn-k",
+        type=int,
+        default=1,
+        help="Number of nearest neighbors per metacell to connect (default: 1).",
+    )
+    parser.add_argument(
+        "--nn-alpha",
+        type=float,
+        default=0.15,
+        help="Alpha for NN edges (default: 0.15).",
+    )
+    parser.add_argument(
+        "--nn-linewidth",
+        type=float,
+        default=0.6,
+        help="Line width for NN edges (default: 0.6).",
     )
     return parser.parse_args()
 
@@ -134,6 +159,41 @@ def _darken_rgba(rgba, factor: float = 0.7):
     return (r * factor, g * factor, b * factor, a)
 
 
+def draw_nearest_neighbor_edges(
+    ax,
+    pos: np.ndarray,
+    *,
+    k: int = 1,
+    color: str = "k",
+    alpha: float = 0.15,
+    linewidth: float = 0.6,
+    zorder: int = 2,
+):
+    """
+    Draw k-NN edges for 2D coordinates.
+    pos: (n, 2)
+    """
+    if pos.shape[0] < 2:
+        return
+    if k < 1:
+        return
+
+    k_eff = min(k, pos.shape[0] - 1)
+    tree = cKDTree(pos)
+    # include self => query k_eff + 1
+    _, idxs = tree.query(pos, k=k_eff + 1)
+    nbrs = np.atleast_2d(idxs)[:, 1:]  # drop self
+
+    i = np.arange(pos.shape[0])[:, None]
+    a = np.minimum(i, nbrs).ravel()
+    b = np.maximum(i, nbrs).ravel()
+    edges = np.unique(np.stack([a, b], axis=1), axis=0)
+
+    segments = np.stack([pos[edges[:, 0]], pos[edges[:, 1]]], axis=1)
+    lc = LineCollection(segments, colors=color, linewidths=linewidth, alpha=alpha, zorder=zorder)
+    ax.add_collection(lc)
+
+
 def project_metacells(adata_cells, adata_meta):
     """Project metacells to UMAP."""
     print("[info] Projecting metacells to UMAP")
@@ -170,6 +230,10 @@ def plot_clean(
     node_alpha: float,
     node_linewidth: float,
     outline_darken: float,
+    draw_nn: bool,
+    nn_k: int,
+    nn_alpha: float,
+    nn_linewidth: float,
 ):
     """Clean scatter plot visualization."""
     print("[info] Creating clean visualization")
@@ -208,6 +272,18 @@ def plot_clean(
     ax.scatter(cell_umap[:, 0], cell_umap[:, 1],
               s=3, c='lightgray', alpha=0.3,
               rasterized=True, zorder=1)
+
+    # Optional: nearest-neighbor edges between metacells (on the current 2D coords)
+    if draw_nn:
+        pos = mc_umap[mc_finite]
+        draw_nearest_neighbor_edges(
+            ax,
+            pos,
+            k=nn_k,
+            alpha=nn_alpha,
+            linewidth=nn_linewidth,
+            zorder=2,
+        )
 
     # Metacells as scatter points
     for ct in unique_types:
@@ -271,6 +347,10 @@ def main():
         args.node_alpha,
         args.node_linewidth,
         args.outline_darken,
+        args.draw_nn,
+        args.nn_k,
+        args.nn_alpha,
+        args.nn_linewidth,
     )
 
 

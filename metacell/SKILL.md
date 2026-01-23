@@ -29,8 +29,9 @@ Use the bundled scripts to explore datasets, run the metacell pipeline, and visu
 
 - `scripts/visualize.py`
   - Project metacells onto the single-cell UMAP and draw a clean scatter plot.
-  - Computes UMAP if missing.
-  - Uses a fast edge renderer (LineCollection) and supports filtering/capping edges.
+  - Computes UMAP if missing (auto-detects raw counts and applies normalize_total + log1p).
+  - Metacells shown as colored scatter points with darkened outlines; background cells in gray.
+  - Supports custom color mapping (`--colors`) and optional nearest-neighbor edges (`--draw-nn`).
   - Use for publication-style overview plots.
 
 ## Typical workflow
@@ -52,9 +53,18 @@ Use the bundled scripts to explore datasets, run the metacell pipeline, and visu
 3) Visualize metacells.
    - Run: `python scripts/visualize.py cells_with_metacells.h5ad cells.metacells.h5ad -o metacells.pdf`
    - Adjust `--celltype-key` to match annotation column in metacell obs.
-   - Optional edge controls:
-     - `--edge-weight-min 0.1` to drop weak edges
-     - `--max-edges 50000` to cap total edges drawn (speeds up large graphs)
+   - Appearance options:
+     - `--title "My Title"` to set plot title
+     - `--figsize 10 8` to adjust figure size
+     - `--node-size 100` to adjust metacell point size
+     - `--node-alpha 1.0` to set metacell point transparency
+     - `--node-linewidth 1.6` to set outline width
+     - `--colors "'TypeA'='#FF0000', 'TypeB'='#00FF00'"` for custom color mapping
+   - Optional nearest-neighbor edges (connect metacells in 2D space):
+     - `--draw-nn` to enable NN edges
+     - `--nn-k 1` number of neighbors per metacell (default: 1)
+     - `--nn-alpha 0.15` edge transparency
+     - `--nn-linewidth 0.6` edge width
 
 ## Output documentation requirement
 
@@ -89,13 +99,16 @@ python scripts/pipeline.py \
 # 3. Visualize metacells
 python scripts/visualize.py <cells_with_metacells.h5ad> <metacells.h5ad> \
   -o <output_umap.png> \
+  --title "<dataset_name>" \
   --celltype-key <celltype_key> \
-  --colors "<R_style_color_vector>"
+  --colors "'TypeA'='#RRGGBB', 'TypeB'='#RRGGBB'" \
+  --node-size 100 \
+  --draw-nn  # optional: add NN edges
 ```
 ```
 
 ## Notes and checks
 
-- Ensure dependencies are available: `scanpy`, `metacells`, `pandas`, `numpy`, `seaborn`, `matplotlib`.
+- Ensure dependencies are available: `scanpy`, `metacells`, `pandas`, `numpy`, `scipy`, `seaborn`, `matplotlib`.
 - The pipeline expects float input; it will cast non-float `adata.X` to float32.
 - `visualize.py` requires `obs["metacell_name"]` in the cell-level AnnData to project metacells. Use the `<input>_with_metacells.h5ad` produced by `pipeline.py`.
