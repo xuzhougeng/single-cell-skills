@@ -56,6 +56,44 @@ Use the bundled scripts to explore datasets, run the metacell pipeline, and visu
      - `--edge-weight-min 0.1` to drop weak edges
      - `--max-edges 50000` to cap total edges drawn (speeds up large graphs)
 
+## Output documentation requirement
+
+After completing the full workflow, you **must** generate a `.md` documentation file with the same basename as the input file (e.g., input `pmbc.h5ad` → output `pbmc.md`).
+
+### Documentation template
+
+```markdown
+## Dataset information
+- Input file: `<input_file_path>`
+- Number of cells: <n_cells>
+- Number of genes: <n_genes>
+- Cell types: <n_types> types (<celltype_key>)
+- Recommended metacell size: <target_size>
+
+## Run metacell pipeline
+
+```bash
+# 1. Explore dataset characteristics
+python scripts/explore.py \
+    <input_path> \
+    --output -
+
+# 2. Build metacells
+python scripts/pipeline.py \
+    <input_path> \
+    --target-metacell-size <target_size> \
+    --group-key <celltype_key> \
+    --output <output_metacell_path> \
+    --output-cells <output_cells_path>
+
+# 3. Visualize metacells
+python scripts/visualize.py <cells_with_metacells.h5ad> <metacells.h5ad> \
+  -o <output_umap.png> \
+  --celltype-key <celltype_key> \
+  --colors "<R_style_color_vector>"
+```
+```
+
 ## Notes and checks
 
 - Ensure dependencies are available: `scanpy`, `metacells`, `pandas`, `numpy`, `seaborn`, `matplotlib`.

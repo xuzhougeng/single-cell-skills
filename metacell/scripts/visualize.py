@@ -3,12 +3,13 @@
 """Simple clean metacell visualization - scatter plot style like the paper."""
 
 import argparse
+import re
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
 from pathlib import Path
-from matplotlib.collections import LineCollection
+from matplotlib.colors import to_rgba
 import scipy.sparse as sp
 
 
@@ -19,15 +20,64 @@ def parse_args():
     parser.add_argument("-o", "--output", default="metacell_clean.pdf")
     parser.add_argument("--title", default="Metacell Visualization")
     parser.add_argument("--celltype-key", default="celltype_anno")
+    parser.add_argument(
+        "--colors",
+        default="",
+        help=(
+            "Optional explicit color mapping for cell types. "
+            "Accepts a string like \"'SCN/Me'='#E9967A', 'Ph SE'='#56b417'\". "
+            "Keys must match values in --celltype-key. "
+            "Unspecified types fall back to the default palette."
+        ),
+    )
     parser.add_argument("--figsize", type=float, nargs=2, default=[10, 8])
     parser.add_argument("--node-size", type=float, default=100)
-    parser.add_argument("--edge-weight-min", type=float, default=0.0,
-                        help="Skip metacell edges with weight below this (default: 0.0).")
-    parser.add_argument("--max-edges", type=int, default=0,
-                        help="Cap total number of edges drawn (0 = no cap).")
-    parser.add_argument("--edge-alpha", type=float, default=0.2)
-    parser.add_argument("--edge-linewidth", type=float, default=0.8)
+    parser.add_argument(
+        "--node-alpha",
+        type=float,
+        default=1.0,
+        help="Alpha for metacell (top-layer) points. Range: 0~1 (default: 1.0).",
+    )
+    parser.add_argument(
+        "--node-linewidth",
+        type=float,
+        default=1.6,
+        help="Outline width for metacell points (default: 1.6).",
+    )
+    parser.add_argument(
+        "--outline-darken",
+        type=float,
+        default=0.7,
+        help="Darken factor for outline color (default: 0.7).",
+    )
     return parser.parse_args()
+
+def parse_color_mapping(s: str) -> dict[str, str]:
+    """
+    Parse a color mapping string like:
+      "'SCN/Me'='#E9967A', 'Ph SE'='#56b417'"
+    into {"SCN/Me": "#E9967A", "Ph SE": "#56b417"}.
+    """
+    if not s or not s.strip():
+        return {}
+
+    # Accept common wrappers like c(...) from R if user passes it.
+    txt = s.strip()
+    if txt.startswith("c(") and txt.endswith(")"):
+        txt = txt[2:-1].strip()
+
+    # Match 'key'='#hex' or "key"="#hex" with flexible spacing.
+    pairs = re.findall(
+        r"""['"]([^'"]+)['"]\s*=\s*['"](#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8}))['"]""",
+        txt,
+    )
+    if not pairs:
+        raise SystemExit(
+            "[error] Failed to parse --colors. "
+            "Expected pairs like \"'Type'='#RRGGBB'\" separated by commas."
+        )
+    return {k: v for k, v in pairs}
+
 
 def _is_likely_counts(adata) -> bool:
     # If scanpy log1p metadata exists, treat as already logged.
@@ -78,6 +128,12 @@ def compute_umap_if_needed(adata):
     return adata
 
 
+def _darken_rgba(rgba, factor: float = 0.7):
+    """Darken an RGBA color by scaling RGB channels."""
+    r, g, b, a = rgba
+    return (r * factor, g * factor, b * factor, a)
+
+
 def project_metacells(adata_cells, adata_meta):
     """Project metacells to UMAP."""
     print("[info] Projecting metacells to UMAP")
@@ -108,12 +164,12 @@ def plot_clean(
     output,
     title,
     celltype_key,
+    color_mapping: dict[str, str],
     figsize,
     node_size,
-    edge_weight_min: float,
-    max_edges: int,
-    edge_alpha: float,
-    edge_linewidth: float,
+    node_alpha: float,
+    node_linewidth: float,
+    outline_darken: float,
 ):
     """Clean scatter plot visualization."""
     print("[info] Creating clean visualization")
@@ -131,8 +187,19 @@ def plot_clean(
     # Colors
     unique_types = sorted(set(mc_types))
     n_types = len(unique_types)
-    palette = sns.color_palette('tab20' if n_types > 10 else 'tab10', n_types)
-    type_colors = dict(zip(unique_types, palette))
+    type_colors: dict[str, object] = {}
+    if color_mapping:
+        # Use explicit mapping when available; fill the rest with a palette.
+        missing = [t for t in unique_types if t not in color_mapping]
+        palette = sns.color_palette('tab20' if len(missing) > 10 else 'tab10', len(missing))
+        for t in unique_types:
+            if t in color_mapping:
+                type_colors[t] = color_mapping[t]
+        for t, c in zip(missing, palette):
+            type_colors[t] = c
+    else:
+        palette = sns.color_palette('tab20' if n_types > 10 else 'tab10', n_types)
+        type_colors = dict(zip(unique_types, palette))
 
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
@@ -142,50 +209,16 @@ def plot_clean(
               s=3, c='lightgray', alpha=0.3,
               rasterized=True, zorder=1)
 
-    # Metacell edges (thicker)
-    if 'connectivities' in adata_meta.obsp:
-        adj = adata_meta.obsp['connectivities'].tocoo()
-        rows = adj.row
-        cols = adj.col
-        weights = adj.data
-        upper = rows < cols
-        rows = rows[upper]
-        cols = cols[upper]
-        weights = weights[upper]
-
-        if edge_weight_min > 0:
-            keep = weights >= edge_weight_min
-            rows = rows[keep]
-            cols = cols[keep]
-            weights = weights[keep]
-
-        if max_edges and weights.size > max_edges:
-            top = np.argpartition(weights, -max_edges)[-max_edges:]
-            rows = rows[top]
-            cols = cols[top]
-
-        segments = np.stack([mc_umap[rows], mc_umap[cols]], axis=1)
-        valid = np.isfinite(segments).all(axis=(1, 2))
-        segments = segments[valid]
-
-        if segments.size:
-            lc = LineCollection(
-                segments,
-                colors='k',
-                linewidths=edge_linewidth,
-                alpha=edge_alpha,
-                zorder=2,
-            )
-            ax.add_collection(lc)
-
     # Metacells as scatter points
     for ct in unique_types:
         mask = (mc_types == ct) & mc_finite
         if mask.sum() > 0:
+            face = to_rgba(type_colors[ct], alpha=node_alpha)
+            edge = _darken_rgba(face, factor=outline_darken)
             ax.scatter(mc_umap[mask, 0], mc_umap[mask, 1],
-                      s=node_size, c=[type_colors[ct]],
-                      edgecolors='white', linewidths=1,
-                      alpha=0.8, label=ct, zorder=3)
+                      s=node_size, c=[face],
+                      edgecolors=[edge], linewidths=node_linewidth,
+                      label=ct, zorder=3)
 
     # Legend
     ax.legend(bbox_to_anchor=(1.02, 0.5), loc='center left',
@@ -208,6 +241,7 @@ def plot_clean(
 
 def main():
     args = parse_args()
+    color_mapping = parse_color_mapping(args.colors)
 
     print(f"[info] Loading cells from {args.cells}")
     adata_cells = sc.read_h5ad(args.cells)
@@ -221,16 +255,6 @@ def main():
     # Project metacells
     adata_meta = project_metacells(adata_cells, adata_meta)
 
-    # Build graph
-    if 'connectivities' not in adata_meta.obsp:
-        print("[info] Computing metacell graph")
-        if 'selected_gene' in adata_meta.var.columns:
-            mask = adata_meta.var['selected_gene'].values
-        else:
-            mask = None
-        sc.pp.pca(adata_meta, n_comps=30, mask_var=mask)
-        sc.pp.neighbors(adata_meta, n_neighbors=20, n_pcs=20)
-
     # Plot
     output_path = Path(args.output)
     if str(output_path.parent) not in (".", ""):
@@ -241,12 +265,12 @@ def main():
         str(output_path),
         args.title,
         args.celltype_key,
+        color_mapping,
         tuple(args.figsize),
         args.node_size,
-        edge_weight_min=args.edge_weight_min,
-        max_edges=args.max_edges,
-        edge_alpha=args.edge_alpha,
-        edge_linewidth=args.edge_linewidth,
+        args.node_alpha,
+        args.node_linewidth,
+        args.outline_darken,
     )
 
 
