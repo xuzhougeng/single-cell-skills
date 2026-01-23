@@ -40,6 +40,7 @@ for d in "$TMP_DIR"/*/; do
 done
 ```
 
+注：仓库自带一个SKILL, 用于更新技能，因此只需要在cursor/cladue/codex中发送, `update sc skills` 即可更新。
 
 ## 使用方法
 
