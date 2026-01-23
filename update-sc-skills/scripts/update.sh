@@ -25,7 +25,7 @@ for d in "$TMP_DIR"/*/; do
   skill_name="$(basename "$d")"
   cp -a "$d" "$SKILLS_DIR"/
   echo "  - $skill_name"
-  ((copied++))
+  copied=$((copied + 1))
 done
 
 echo "Done! Updated $copied skills in $SKILLS_DIR"
